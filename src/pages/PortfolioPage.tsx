@@ -261,7 +261,7 @@ function About({ profile }: { profile: typeof FALLBACK_PROFILE }) {
   const certs = profile.certs ?? FALLBACK_PROFILE.certs
 
   return (
-    <section id="about" className="py-28 relative">
+    <section id="about" className="py-28 relative scroll-mt-24">
       <div className="max-w-7xl mx-auto px-6">
         <SectionHead label="About Me" title="The story so far" sub="Seven years of building things that matter — from zero to production and beyond." />
         <div className="grid lg:grid-cols-2 gap-16 items-start">
@@ -338,7 +338,7 @@ function Services({ services }: { services: Record<string, unknown>[] }) {
   }
 
   return (
-    <section id="services" className="py-28 relative">
+    <section id="services" className="py-28 relative scroll-mt-24">
       <div className="max-w-7xl mx-auto px-6">
         <SectionHead label="Services" title="What I bring to the table" sub="End-to-end digital services — design, development, and strategy." />
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -503,7 +503,7 @@ function Contact({ contact, profile, emailjsConfig }: {
   const socialIconMap: Record<string, React.ElementType> = { LinkedIn: Linkedin, Twitter, GitHub: Github, Instagram }
 
   return (
-    <section id="contact" className="py-28 relative">
+    <section id="contact" className="py-28 relative scroll-mt-24">
       <div className="max-w-7xl mx-auto px-6">
         <SectionHead label="Contact" title="Let's work together" sub="Have a project in mind? I'd love to hear about it." />
         <div className="grid lg:grid-cols-5 gap-10 lg:gap-16">
@@ -624,15 +624,39 @@ function Footer({ profile, navItems }: { profile: typeof FALLBACK_PROFILE; navIt
 export default function PortfolioPage() {
   // Scroll to hash on initial load so /#services, /#contact, etc. work
   useEffect(() => {
+  const scrollToHash = (behavior: ScrollBehavior = "auto") => {
     const hash = window.location.hash
     if (!hash) return
-    // Wait a tick for sections to mount, then scroll
-    const timer = setTimeout(() => {
-      const el = document.querySelector(hash)
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
-    }, 120)
-    return () => clearTimeout(timer)
-  }, [])
+
+    const target = document.querySelector(hash) as HTMLElement | null
+    if (!target) return
+
+    const headerOffset = 90
+    const elementPosition = target.getBoundingClientRect().top
+    const offsetPosition = elementPosition + window.scrollY - headerOffset
+
+    window.scrollTo({
+      top: offsetPosition,
+      behavior,
+    })
+  }
+
+  const timers = [
+    setTimeout(() => scrollToHash("auto"), 100),
+    setTimeout(() => scrollToHash("auto"), 500),
+    setTimeout(() => scrollToHash("auto"), 1000),
+    setTimeout(() => scrollToHash("smooth"), 1800),
+  ]
+
+  const handleHashChange = () => scrollToHash("smooth")
+
+  window.addEventListener("hashchange", handleHashChange)
+
+  return () => {
+    timers.forEach(clearTimeout)
+    window.removeEventListener("hashchange", handleHashChange)
+  }
+}, [])
 
   const [profile, setProfile] = useState<typeof FALLBACK_PROFILE>(FALLBACK_PROFILE)
   const [contact, setContact] = useState<typeof FALLBACK_CONTACT>(FALLBACK_CONTACT)
