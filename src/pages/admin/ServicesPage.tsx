@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import AdminLayout from "../../components/admin/AdminLayout"
-import { subscribeCollection, addDocument, updateDocument, deleteDocument, logActivity, orderBy } from "../../lib/db"
+import { subscribeCollection, addDocument, updateDocument, deleteDocument, logActivity, orderBy, batchUpdate } from "../../lib/db"
 import { toast } from "sonner"
 import { Plus, Pencil, Trash2, GripVertical, X, Briefcase } from "lucide-react"
 
@@ -24,6 +24,13 @@ const EMPTY: Omit<Service, "id"> = {
   color: "#3B82F6", order: 0, published: true,
 }
 
+// Dark-styled select — native <select> dropdown menus inherit background from
+// the element itself via inline style so text is always visible in the popup.
+const SELECT_STYLE: React.CSSProperties = {
+  background: "#0B1628",
+  color: "#E2E8F8",
+}
+
 function Modal({ service, onClose, onSave }: {
   service: Partial<Service> | null
   onClose: () => void
@@ -40,14 +47,10 @@ function Modal({ service, onClose, onSave }: {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
-    try {
-      await onSave(form)
-    } finally {
-      setSaving(false)
-    }
+    try { await onSave(form) } finally { setSaving(false) }
   }
 
-  const inputCls = "w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/[0.08] text-white text-sm focus:outline-none focus:border-blue-500/40 transition-all placeholder:text-slate-600"
+  const inputCls = "w-full px-3 py-2.5 rounded-lg bg-[#0B1628] border border-white/[0.10] text-white text-sm focus:outline-none focus:border-blue-500/40 transition-all placeholder:text-slate-600"
   const labelCls = "block text-xs text-slate-400 mb-1.5 font-medium"
 
   return (
@@ -75,8 +78,16 @@ function Modal({ service, onClose, onSave }: {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Icon</label>
-              <select className={inputCls} value={form.icon} onChange={(e) => handle("icon", e.target.value)}>
-                {ICON_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              {/* Explicit inline style ensures the native dropdown popup is dark */}
+              <select
+                className={inputCls}
+                style={SELECT_STYLE}
+                value={form.icon}
+                onChange={(e) => handle("icon", e.target.value)}
+              >
+                {ICON_OPTIONS.map((o) => (
+                  <option key={o} value={o} style={SELECT_STYLE}>{o}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -132,6 +143,11 @@ export default function ServicesPage() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<Partial<Service> | null | "new">(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [savingOrder, setSavingOrder] = useState(false)
+
+  // Drag state
+  const draggingIdx = useRef<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
   useEffect(() => {
     const unsub = subscribeCollection(
@@ -142,6 +158,50 @@ export default function ServicesPage() {
     return unsub
   }, [])
 
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+
+  const handleDragStart = (idx: number) => {
+    draggingIdx.current = idx
+  }
+
+  const handleDragEnter = (idx: number) => {
+    if (draggingIdx.current === null || draggingIdx.current === idx) return
+    setDragOverIdx(idx)
+  }
+
+  const handleDragEnd = () => {
+    setDragOverIdx(null)
+  }
+
+  const handleDrop = async (dropIdx: number) => {
+    const from = draggingIdx.current
+    draggingIdx.current = null
+    setDragOverIdx(null)
+
+    if (from === null || from === dropIdx) return
+
+    // Reorder locally first for instant feedback
+    const next = [...items]
+    const [moved] = next.splice(from, 1)
+    next.splice(dropIdx, 0, moved)
+    setItems(next)
+
+    // Persist new order values to Firestore
+    setSavingOrder(true)
+    try {
+      await batchUpdate(
+        next.map((item, i) => ({ path: `services/${item.id}`, data: { order: i } }))
+      )
+      toast.success("Order saved")
+    } catch {
+      toast.error("Failed to save order")
+    } finally {
+      setSavingOrder(false)
+    }
+  }
+
+  // ── CRUD handlers ──────────────────────────────────────────────────────────
+
   const handleSave = async (data: Omit<Service, "id">) => {
     try {
       if (modal && typeof modal === "object" && modal.id) {
@@ -149,7 +209,8 @@ export default function ServicesPage() {
         toast.success("Service updated")
         await logActivity("Updated service", data.title)
       } else {
-        await addDocument("services", data)
+        // New service goes at the end
+        await addDocument("services", { ...data, order: items.length })
         toast.success("Service added")
         await logActivity("Added service", data.title)
       }
@@ -177,12 +238,17 @@ export default function ServicesPage() {
     <AdminLayout
       title="Services"
       action={
-        <button
-          onClick={() => setModal("new")}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-all shadow-lg shadow-blue-600/20"
-        >
-          <Plus size={14} /> Add Service
-        </button>
+        <div className="flex items-center gap-2">
+          {savingOrder && (
+            <span className="text-slate-500 text-xs font-mono animate-pulse">Saving order…</span>
+          )}
+          <button
+            onClick={() => setModal("new")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-all shadow-lg shadow-blue-600/20"
+          >
+            <Plus size={14} /> Add Service
+          </button>
+        </div>
       }
     >
       <div className="p-6 max-w-5xl mx-auto">
@@ -197,40 +263,65 @@ export default function ServicesPage() {
             <Briefcase size={32} className="mx-auto mb-4 text-slate-700" />
             <h3 className="text-white font-medium mb-2">No services yet</h3>
             <p className="text-slate-500 text-sm mb-5">Add your first service to display it on the website.</p>
-            <button
-              onClick={() => setModal("new")}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium"
-            >
+            <button onClick={() => setModal("new")} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium">
               Add Your First Service
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between mb-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-3">
               <p className="text-slate-500 text-sm">{items.length} service{items.length !== 1 ? "s" : ""}</p>
+              <p className="text-slate-600 text-xs flex items-center gap-1.5">
+                <GripVertical size={12} /> Drag rows to reorder
+              </p>
             </div>
-            {items.map((item) => (
+
+            {items.map((item, idx) => (
               <div
                 key={item.id}
-                className="flex items-center gap-4 px-4 py-3 bg-white/[0.03] border border-white/[0.07] rounded-xl hover:border-white/[0.12] transition-colors group"
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragEnter={() => handleDragEnter(idx)}
+                onDragEnd={handleDragEnd}
+                onDrop={() => handleDrop(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                className={`flex items-center gap-4 px-4 py-3 rounded-xl border transition-all group select-none ${
+                  dragOverIdx === idx && draggingIdx.current !== idx
+                    ? "border-blue-500/50 bg-blue-500/8 scale-[1.01]"
+                    : draggingIdx.current === idx
+                    ? "border-white/20 bg-white/5 opacity-50"
+                    : "bg-white/[0.03] border-white/[0.07] hover:border-white/[0.14]"
+                }`}
               >
-                <GripVertical size={14} className="text-slate-700 shrink-0 cursor-grab" />
+                {/* Drag handle */}
+                <GripVertical
+                  size={16}
+                  className="text-slate-600 hover:text-slate-300 shrink-0 cursor-grab active:cursor-grabbing transition-colors"
+                />
+
+                {/* Color dot */}
                 <div
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: `${item.color}18` }}
+                  style={{ background: `${item.color}20` }}
                 >
-                  <div className="w-2 h-2 rounded-full" style={{ background: item.color }} />
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ background: item.color }} />
                 </div>
+
+                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-white font-medium text-sm">{item.title}</span>
+                    <span className="text-slate-600 text-xs font-mono">{item.icon}</span>
                     {!item.published && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-slate-500 border border-white/[0.06]">Draft</span>
                     )}
                   </div>
-                  <p className="text-slate-500 text-xs truncate">{item.desc}</p>
+                  <p className="text-slate-500 text-xs truncate mt-0.5">{item.desc}</p>
                 </div>
+
                 <span className="text-slate-400 text-sm font-mono shrink-0">{item.price}</span>
+
+                {/* Actions */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                   <button
                     onClick={() => setModal(item)}
