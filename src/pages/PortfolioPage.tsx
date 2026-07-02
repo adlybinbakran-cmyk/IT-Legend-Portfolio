@@ -215,8 +215,8 @@ function Hero({ profile }: { profile: typeof FALLBACK_PROFILE }) {
           </motion.div>
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.5 }}
             className="grid grid-cols-4 divide-x divide-white/[0.08]">
-            {FALLBACK_STATS.map((s) => (
-              <div key={s.label} className="px-4 first:pl-0">
+            {FALLBACK_STATS.map((s, i) => (
+              <div key={i} className="px-4 first:pl-0">
                 <div className="text-2xl font-bold text-white font-mono leading-tight">{s.value}</div>
                 <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
               </div>
@@ -346,7 +346,7 @@ function Services({ services }: { services: Record<string, unknown>[] }) {
             const Icon = iconMap[s.icon as string] ?? Code2
             const color = (s.color as string) || "#3B82F6"
             return (
-              <motion.div key={s.id as string || i} {...fade(0.07 * i)}
+              <motion.div key={s.id != null ? String(s.id) : `svc-${i}`} {...fade(0.07 * i)}
                 className={`${glassCard} p-6 hover:border-blue-500/20 hover:bg-white/[0.05] transition-all duration-300 group cursor-default`}>
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5" style={{ background: `${color}18` }}>
                   <Icon size={20} style={{ color }} />
@@ -387,7 +387,7 @@ function Portfolio({ projects }: { projects: Record<string, unknown>[] }) {
         </motion.div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map((p, i) => (
-            <motion.div key={p.id as string || i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: i * 0.06 }}
+            <motion.div key={p.id != null ? String(p.id) : `proj-${i}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: i * 0.06 }}
               className="group rounded-2xl overflow-hidden bg-white/[0.03] border border-white/[0.07] hover:border-blue-500/20 transition-all duration-300 hover:-translate-y-1">
               <div className="relative overflow-hidden h-48 bg-slate-900">
                 {p.coverImage ? <img src={p.coverImage as string} alt={p.title as string} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-700 text-4xl">📁</div>}
@@ -424,7 +424,7 @@ function Testimonials({ items }: { items: Record<string, unknown>[] }) {
         <SectionHead label="Testimonials" title="Client Voices" sub="What the people I've worked with have to say." />
         <div className="grid md:grid-cols-2 gap-5">
           {items.map((t, i) => (
-            <motion.div key={t.id as string || i} {...fade(0.08 * i)} className={`${glassCard} p-7 hover:border-blue-500/20 transition-colors`}>
+            <motion.div key={t.id != null ? String(t.id) : `tst-${i}`} {...fade(0.08 * i)} className={`${glassCard} p-7 hover:border-blue-500/20 transition-colors`}>
               <div className="flex gap-0.5 mb-5">
                 {Array.from({ length: Number(t.rating) || 5 }).map((_, j) => (
                   <Star key={j} size={14} className="text-yellow-400 fill-yellow-400" />
@@ -622,6 +622,18 @@ function Footer({ profile, navItems }: { profile: typeof FALLBACK_PROFILE; navIt
 // ─── Main page component ─────────────────────────────────────────────────────
 
 export default function PortfolioPage() {
+  // Scroll to hash on initial load so /#services, /#contact, etc. work
+  useEffect(() => {
+    const hash = window.location.hash
+    if (!hash) return
+    // Wait a tick for sections to mount, then scroll
+    const timer = setTimeout(() => {
+      const el = document.querySelector(hash)
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 120)
+    return () => clearTimeout(timer)
+  }, [])
+
   const [profile, setProfile] = useState<typeof FALLBACK_PROFILE>(FALLBACK_PROFILE)
   const [contact, setContact] = useState<typeof FALLBACK_CONTACT>(FALLBACK_CONTACT)
   const [emailjsConfig, setEmailjsConfig] = useState<{ serviceId: string; templateId: string; publicKey: string } | undefined>(undefined)
